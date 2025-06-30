@@ -175,21 +175,26 @@ async function addImageToProduct(productId, imageUrl, title) {
 		);
 
 		const { data, errors } = response.data;
+		
+		// Track image upload cost (check both headers and extensions)
+		const imageCost = parseInt(response.headers['x-graphql-cost-include-fields']) || 
+		                 parseInt(response.headers['X-GraphQL-Cost-Include-Fields']) ||
+		                 response.data.extensions?.cost?.actualQueryCost || 0;
 
 		if (errors) {
 			console.error(`❌ GraphQL errors adding image:`, errors);
-			return false;
+			return { success: false, cost: imageCost };
 		}
 
 		if (data.productCreateMedia.mediaUserErrors.length > 0) {
 			console.error(`❌ Media user errors:`, data.productCreateMedia.mediaUserErrors);
-			return false;
+			return { success: false, cost: imageCost };
 		}
 
-		return true;
+		return { success: true, cost: imageCost };
 	} catch (error) {
 		console.error(`❌ Failed to add image:`, error.response?.data || error.message);
-		return false;
+		return { success: false, cost: 0 };
 	}
 }
 
@@ -218,11 +223,25 @@ async function createProductBatch(batchInputs, startIndex) {
 		);
 
 		const { data, errors } = response.data;
+		
+		// Extract cost information from response extensions
+		const costInfo = {
+			requestedCost: response.data.extensions?.cost?.requestedQueryCost || 0,
+			actualCost: response.data.extensions?.cost?.actualQueryCost || 0,
+			maxAvailable: response.data.extensions?.cost?.throttleStatus?.maximumAvailable || 0,
+			currentlyAvailable: response.data.extensions?.cost?.throttleStatus?.currentlyAvailable || 0,
+			restoreRate: response.data.extensions?.cost?.throttleStatus?.restoreRate || 0
+		};
 
 		if (errors) {
 			console.error(`GraphQL errors for batch starting at ${startIndex}:`, errors);
+			if (errors.some(e => e.extensions?.code === 'THROTTLED')) {
+				console.log(`⚠️  Rate limit hit. Requested: ${costInfo.requestedCost} units, Available: ${costInfo.currentlyAvailable}/${costInfo.maxAvailable}`);
+			}
 			return [];
 		}
+		
+		console.log(`💰 Batch cost: ${costInfo.requestedCost} units | Available: ${costInfo.currentlyAvailable}/${costInfo.maxAvailable} (restore: ${costInfo.restoreRate}/sec)`);
 
 		const results = [];
 		for (let i = 0; i < batchInputs.length; i++) {
@@ -429,15 +448,25 @@ let failureCount = 0;
 					imageJobs.map(job => addImageToProduct(job.productId, job.imageUrl, job.title))
 				);
 				
-				// Log results
+				// Calculate total image costs
+				let totalImageCost = 0;
+				let imageSuccessCount = 0;
+				
 				imageJobs.forEach((job, idx) => {
-					const imageSuccess = imageResults[idx].status === 'fulfilled' && imageResults[idx].value;
-					if (imageSuccess) {
+					const result = imageResults[idx];
+					const imageData = result.status === 'fulfilled' ? result.value : { success: false, cost: 0 };
+					
+					totalImageCost += imageData.cost || 0;
+					
+					if (imageData.success) {
+						imageSuccessCount++;
 						console.log(`✅ Batch created: ${job.title} with image (${job.index}/${total})`);
 					} else {
 						console.log(`✅ Batch created: ${job.title} but image failed (${job.index}/${total})`);
 					}
 				});
+				
+				console.log(`💰 Image batch cost: ${totalImageCost} units (${imageSuccessCount}/${imageJobs.length} successful)`);
 			}
 			
 			// No delay needed - GraphQL rate limit is per minute, not per second

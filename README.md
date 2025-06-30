@@ -57,9 +57,35 @@ Default: 100 unique products with realistic data including names, descriptions, 
 
 ## Rate Limiting
 
-- Uses GraphQL Admin API with 1000 cost units/minute limit
-- Implements batching for efficient bulk operations
-- Includes error handling and retry logic for rate limit responses
+The tool automatically respects Shopify's GraphQL rate limits, which vary by plan:
+
+### Recommended Batch Sizes by Plan
+
+| Shopify Plan | Monthly Cost | Rate Limit | Recommended `--batch-size` |
+|--------------|--------------|------------|----------------------------|
+| **Basic** | $39/month | 1000 points/minute | 30-40 products |
+| **Shopify** | $105/month | 1000 points/minute | 30-40 products |
+| **Advanced** | $399/month | 2000 points/minute | 50-65 products |
+| **Development Store** | Free (Partner) | 2000 points/minute | 50-65 products |
+| **Shopify Plus** | $2,300+/month | 10,000+ points/minute | 100+ products |
+
+### How It Works
+- Each product creation costs ~10 points
+- Each image upload costs ~21 points  
+- Total: ~31 points per complete product
+- The tool displays real-time rate limit consumption and remaining capacity
+
+### Usage Examples
+```bash
+# For Basic/Shopify plans
+node generate.js 200 --batch --batch-size=35
+
+# For Advanced plans  
+node generate.js 500 --batch --batch-size=60
+
+# For Shopify Plus
+node generate.js 1000 --batch --batch-size=100
+```
 
 ## Product Uniqueness
 
