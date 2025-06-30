@@ -345,7 +345,7 @@ Arguments:
 Options:
   --no-test-tag        Don't add 'test_product' tag for easy cleanup
   --batch              Use batch processing for faster creation
-  --batch-size=N       Set batch size when using --batch (default: 10, max: 50)
+  --batch-size=N       Set batch size when using --batch (default: 10, max: 100)
   --help, -h           Show this help message
 
 Examples:
@@ -365,8 +365,8 @@ if (total <= 0 || !Number.isInteger(total)) {
 
 // Validate batch size
 if (useBatching) {
-	if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 50) {
-		console.error("Batch size must be an integer between 1 and 50");
+	if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) {
+		console.error("Batch size must be an integer between 1 and 100");
 		process.exit(1);
 	}
 }
