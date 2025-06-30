@@ -186,7 +186,6 @@ async function addImageToProduct(productId, imageUrl, title) {
 			return false;
 		}
 
-		console.log(`✅ Image added successfully`);
 		return true;
 	} catch (error) {
 		console.error(`❌ Failed to add image:`, error.response?.data || error.message);
@@ -405,23 +404,43 @@ let failureCount = 0;
 			// Create products in batch
 			const results = await createProductBatch(batchInputs, i);
 			
-			// Add images and count results
+			// Collect successful products and prepare images
+			const imageJobs = [];
 			for (const result of results) {
 				if (result.success) {
 					const seed = faker.string.alphanumeric(8);
 					const imageUrl = `https://picsum.photos/seed/${seed}/400/400.jpg`;
-					await addImageToProduct(result.product.id, imageUrl, result.product.title);
+					imageJobs.push({
+						productId: result.product.id,
+						imageUrl,
+						title: result.product.title,
+						index: result.index
+					});
 					successCount++;
-					console.log(`✅ Batch created: ${result.product.title} (${result.index}/${total})`);
 				} else {
 					failureCount++;
 				}
 			}
 			
-			// Rate limiting between batches
-			if (i + batchSize <= total) {
-				await delay(1000); // Longer delay for batches
+			// Upload all images concurrently for this batch
+			if (imageJobs.length > 0) {
+				console.log(`🖼️  Uploading ${imageJobs.length} images concurrently...`);
+				const imageResults = await Promise.allSettled(
+					imageJobs.map(job => addImageToProduct(job.productId, job.imageUrl, job.title))
+				);
+				
+				// Log results
+				imageJobs.forEach((job, idx) => {
+					const imageSuccess = imageResults[idx].status === 'fulfilled' && imageResults[idx].value;
+					if (imageSuccess) {
+						console.log(`✅ Batch created: ${job.title} with image (${job.index}/${total})`);
+					} else {
+						console.log(`✅ Batch created: ${job.title} but image failed (${job.index}/${total})`);
+					}
+				});
 			}
+			
+			// No delay needed - GraphQL rate limit is per minute, not per second
 		}
 	} else {
 		// Sequential processing
