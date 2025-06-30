@@ -32,61 +32,21 @@ const PRODUCT_CREATE_MUTATION = `
   }
 `;
 
-const BATCH_PRODUCT_CREATE_MUTATION = `
+function generateBatchMutation(size) {
+	const variables = Array.from({ length: size }, (_, i) => `$input${i}: ProductInput!`).join(',\n    ');
+	const mutations = Array.from({ length: size }, (_, i) => `
+    product${i}: productCreate(input: $input${i}) {
+      product { id title handle }
+      userErrors { field message }
+    }`).join('');
+
+	return `
   mutation batchProductCreate(
-    $input0: ProductInput!,
-    $input1: ProductInput!,
-    $input2: ProductInput!,
-    $input3: ProductInput!,
-    $input4: ProductInput!,
-    $input5: ProductInput!,
-    $input6: ProductInput!,
-    $input7: ProductInput!,
-    $input8: ProductInput!,
-    $input9: ProductInput!
-  ) {
-    product0: productCreate(input: $input0) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product1: productCreate(input: $input1) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product2: productCreate(input: $input2) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product3: productCreate(input: $input3) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product4: productCreate(input: $input4) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product5: productCreate(input: $input5) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product6: productCreate(input: $input6) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product7: productCreate(input: $input7) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product8: productCreate(input: $input8) {
-      product { id title handle }
-      userErrors { field message }
-    }
-    product9: productCreate(input: $input9) {
-      product { id title handle }
-      userErrors { field message }
-    }
+    ${variables}
+  ) {${mutations}
   }
 `;
+}
 
 const PRODUCT_CREATE_MEDIA_MUTATION = `
   mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
@@ -242,10 +202,12 @@ async function createProductBatch(batchInputs, startIndex) {
 			variables[`input${i}`] = input;
 		});
 		
+		const batchMutation = generateBatchMutation(batchInputs.length);
+		
 		const response = await axios.post(
 			GRAPHQL_ENDPOINT,
 			{
-				query: BATCH_PRODUCT_CREATE_MUTATION,
+				query: batchMutation,
 				variables,
 			},
 			{
@@ -364,6 +326,14 @@ async function delay(ms) {
 const args = process.argv.slice(2);
 const includeTestTag = !args.includes("--no-test-tag");
 const useBatching = args.includes("--batch");
+
+// Parse batch size argument
+let batchSize = 10; // default
+const batchSizeArg = args.find((arg) => arg.startsWith("--batch-size="));
+if (batchSizeArg) {
+	batchSize = parseInt(batchSizeArg.split("=")[1]);
+}
+
 const total = parseInt(args.find((arg) => !arg.startsWith("--"))) || 100;
 
 if (args.includes("--help") || args.includes("-h")) {
@@ -375,14 +345,16 @@ Arguments:
 
 Options:
   --no-test-tag        Don't add 'test_product' tag for easy cleanup
-  --batch              Use batch processing for faster creation (experimental)
+  --batch              Use batch processing for faster creation
+  --batch-size=N       Set batch size when using --batch (default: 10, max: 50)
   --help, -h           Show this help message
 
 Examples:
-  node generate.js                  # Generate 100 products with test_product tag
-  node generate.js 50               # Generate 50 products with test_product tag
-  node generate.js 200 --no-test-tag   # Generate 200 products without test_product tag
-  node generate.js 500 --batch         # Generate 500 products using batch processing
+  node generate.js                      # Generate 100 products with test_product tag
+  node generate.js 50                   # Generate 50 products with test_product tag
+  node generate.js 200 --no-test-tag       # Generate 200 products without test_product tag
+  node generate.js 500 --batch             # Generate 500 products using batch processing (size 10)
+  node generate.js 1000 --batch --batch-size=25  # Generate 1000 products in batches of 25
 `);
 	process.exit(0);
 }
@@ -392,11 +364,23 @@ if (total <= 0 || !Number.isInteger(total)) {
 	process.exit(1);
 }
 
+// Validate batch size
+if (useBatching) {
+	if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 50) {
+		console.error("Batch size must be an integer between 1 and 50");
+		process.exit(1);
+	}
+}
+
 console.log(`🚀 Starting generation of ${total} products...`);
 console.log(`📍 Store: ${SHOP}`);
 console.log(`🔑 Using GraphQL Admin API`);
 console.log(`🏷️  Test tag: ${includeTestTag ? "included" : "disabled"}`);
-console.log(`⚡ Batching: ${useBatching ? "enabled" : "disabled"}`);
+if (useBatching) {
+	console.log(`⚡ Batching: enabled (size: ${batchSize})`);
+} else {
+	console.log(`⚡ Batching: disabled`);
+}
 console.log("─".repeat(50));
 
 let successCount = 0;
@@ -409,7 +393,6 @@ let failureCount = 0;
 		// Get Online Store publication ID once for all batches
 		const publicationId = await getOnlineStorePublicationId();
 		
-		const batchSize = 10;
 		for (let i = 1; i <= total; i += batchSize) {
 			const currentBatchSize = Math.min(batchSize, total - i + 1);
 			const batchInputs = [];
